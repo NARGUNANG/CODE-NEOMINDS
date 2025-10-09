@@ -30,7 +30,8 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
+ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 import textwrap
 
 
@@ -110,27 +111,32 @@ def generate_with_langchain(prompt: str, model: str, temperature: float) -> str:
 
 def generate_with_openai(prompt: str, model: str, temperature: float) -> str:
     try:
-        import openai
+        from openai import OpenAI
     except Exception as e:
         raise RuntimeError("openai package not installed: " + str(e))
 
-    if not os.environ.get("OPENAI_API_KEY"):
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set in environment")
 
-    openai.api_key = os.environ.get("OPENAI_API_KEY")
+    # Initialize the new OpenAI client
+    client = OpenAI(api_key=api_key)
 
     messages = [
         {"role": "system", "content": "You are a coding assistant."},
         {"role": "user", "content": prompt},
     ]
 
-    resp = openai.ChatCompletion.create(
+    # Modern API call (works for openai>=1.0.0)
+    response = client.chat.completions.create(
         model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=2400,
     )
-    return resp["choices"][0]["message"]["content"]
+
+    return response.choices[0].message.content
+
 
 
 def write_code_file(code: str, language: str, out_path: Path | None = None) -> Path:
