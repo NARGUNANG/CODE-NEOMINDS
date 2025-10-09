@@ -1,1 +1,235 @@
+"""
+generator/agent2_generator.py
+
+Agent 2 — Code Generator
+
+This script reads the analyzed problem JSON produced by Agent 1
+(data/problem.json), prepares a clear prompt, asks an LLM to generate
+working code (Python / C++ / Java), and writes the generated code back
+into data/problem.json as well as into a standalone file for manual review.
+
+Usage examples:
+  # from repo root (CodeAI-DSA)
+  python generator/agent2_generator.py --language python
+
+  # explicit problem file and output
+  python generator/agent2_generator.py -p data/problem.json -l cpp -o data/generated_solution.cpp
+
+Notes:
+ - The script tries to use langchain (LLMChain + ChatOpenAI) if available.
+   If not, it falls back to the official OpenAI python client (openai).
+ - Make sure OPENAI_API_KEY is set in your environment.
+ - Install dependencies:
+     pip install langchain openai
+
+"""
+
+from __future__ import annotations
+import json
+import os
+import sys
+import argparse
+from pathlib import Path
+from datetime import datetime, timezone
+ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+import textwrap
+
+
+DEFAULT_PROBLEM_PATH = Path(__file__).resolve().parents[1] / "data" / "problem.json"
+
+
+def load_problem(path: Path) -> dict:
+    if not path.exists():
+        raise FileNotFoundError(f"Problem file not found: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+
+
+def save_problem(path: Path, data: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+PROMPT_TEMPLATE = textwrap.dedent(
+    """
+You are a coding assistant.
+Write efficient and readable {language} code for this DSA problem.
+
+Problem Description:
+{problem_text}
+
+Input: {input}
+Output: {output}
+Constraints: {constraints}
+Edge Cases: {edge_cases}
+
+The code should:
+1. Use optimal algorithm and explain complexity briefly in comments.
+2. Include comments and a main function to run examples.
+3. Handle edge cases gracefully.
+4. If multiple solutions exist, provide the most practical one.
+
+Wrap the full source in a single reply and do NOT include markdown fences.
+"""
+)
+
+
+def build_prompt(problem_data: dict, language: str) -> str:
+    # Safely extract fields with defaults
+    problem_text = problem_data.get("problem_text") or problem_data.get("description") or ""
+    input_desc = problem_data.get("input") or ""
+    output_desc = problem_data.get("output") or ""
+    constraints = problem_data.get("constraints") or ""
+    edge_cases = problem_data.get("edge_cases") or ""
+
+    prompt = PROMPT_TEMPLATE.format(
+        language=language,
+        problem_text=problem_text,
+        input=input_desc,
+        output=output_desc,
+        constraints=constraints,
+        edge_cases=edge_cases,
+    )
+    return prompt
+
+
+def generate_with_langchain(prompt: str, model: str, temperature: float) -> str:
+    try:
+        from langchain.chat_models import ChatOpenAI
+        from langchain import LLMChain
+        from langchain.prompts import PromptTemplate
+    except Exception as e:
+        raise RuntimeError("langchain is not available: " + str(e))
+
+    # Create a small PromptTemplate to wrap the already-built prompt
+    template = PromptTemplate(input_variables=["text"], template="{text}")
+    chain = LLMChain(llm=ChatOpenAI(model_name=model, temperature=temperature), prompt=template)
+    response = chain.run({"text": prompt})
+    return response
+
+
+def generate_with_openai(prompt: str, model: str, temperature: float) -> str:
+    try:
+        import openai
+    except Exception as e:
+        raise RuntimeError("openai package not installed: " + str(e))
+
+    if not os.environ.get("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"):
+        raise RuntimeError("OPENAI_API_KEY not set in environment")
+
+    openai.api_key = os.environ.get("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")
+
+    messages = [
+        {"role": "system", "content": "You are a coding assistant."},
+        {"role": "user", "content": prompt},
+    ]
+
+    resp = openai.ChatCompletion.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=2400,
+    )
+    return resp["choices"][0]["message"]["content"]
+
+
+def write_code_file(code: str, language: str, out_path: Path | None = None) -> Path:
+    ext = {
+        "python": "py",
+        "py": "py",
+        "cpp": "cpp",
+        "c++": "cpp",
+        "java": "java",
+    }.get(language.lower(), "txt")
+
+    if out_path is None:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        out_dir = Path(__file__).resolve().parents[1] / "data"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"generated_solution_{language.lower()}_{ts}.{ext}"
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(code)
+
+    return out_path
+
+
+def quick_python_syntax_check(code: str) -> tuple[bool, str]:
+    try:
+        compile(code, "<generated>", "exec")
+        return True, "OK"
+    except Exception as e:
+        return False, str(e)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Agent 2: Code Generator — generate code from analyzed problem JSON")
+    parser.add_argument("-p", "--problem-file", default=str(DEFAULT_PROBLEM_PATH), help="Path to problem.json produced by Agent 1")
+    parser.add_argument("-l", "--language", default="python", choices=["python", "cpp", "java"], help="Output language")
+    parser.add_argument("-o", "--out-file", default=None, help="Optional path to write generated code file")
+    parser.add_argument("-m", "--model", default="gpt-4o-mini", help="Model name to call (langchain / openai). Change as needed.")
+    parser.add_argument("--temperature", type=float, default=0.0, help="Creative temperature for the LLM (0.0 = deterministic)")
+    parser.add_argument("--prefer-langchain", action="store_true", help="Try langchain first; otherwise fall back to openai package")
+    args = parser.parse_args(argv)
+
+    problem_path = Path(args.problem_file)
+    print(f"Loading problem file: {problem_path}")
+    problem_data = load_problem(problem_path)
+
+    prompt = build_prompt(problem_data, args.language)
+    print("Prompt prepared. Size:", len(prompt), "chars")
+
+    # LLM call
+    response_text = None
+    last_error = None
+
+    # Try langchain first if requested
+    if args.prefer_langchain:
+        try:
+            print("Trying langchain...")
+            response_text = generate_with_langchain(prompt, args.model, args.temperature)
+            print("Response received from langchain")
+        except Exception as e:
+            last_error = e
+            print("Langchain failed:", e)
+
+    if response_text is None:
+        try:
+            print("Trying openai python client...")
+            response_text = generate_with_openai(prompt, args.model, args.temperature)
+            print("Response received from openai client")
+        except Exception as e:
+            last_error = e
+            print("OpenAI client failed:", e)
+
+    if response_text is None:
+        raise RuntimeError(f"LLM generation failed. Last error: {last_error}")
+
+    # Heuristics: if the response contains multiple answers or extra commentary, the user may want the raw content.
+    generated_code = response_text.strip()
+
+    # Save generated code to problem.json
+    problem_data["generated_code"] = generated_code
+    save_problem(problem_path, problem_data)
+    print(f"Saved generated code back into: {problem_path}")
+
+    # Also write a standalone file for easy reviewing
+    out_path = Path(args.out_file) if args.out_file else None
+    written_path = write_code_file(generated_code, args.language, out_path)
+    print(f"Wrote generated source to: {written_path}")
+
+    # Quick sanity checks
+    if args.language.lower() in ("python", "py"):
+        ok, msg = quick_python_syntax_check(generated_code)
+        if ok:
+            print("Python syntax check: OK")
+        else:
+            print("Python syntax check: FAILED ->", msg)
+
+    print("Done. You can now pass data/problem.json to the next agent (explainer).")
+
+
+if __name__ == "__main__":
+    main()
 
