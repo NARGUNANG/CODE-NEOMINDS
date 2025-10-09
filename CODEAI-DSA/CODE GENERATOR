@@ -30,8 +30,7 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from datetime import datetime, timezone
-ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+from datetime import datetime
 import textwrap
 
 
@@ -115,10 +114,10 @@ def generate_with_openai(prompt: str, model: str, temperature: float) -> str:
     except Exception as e:
         raise RuntimeError("openai package not installed: " + str(e))
 
-    if not os.environ.get("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"):
+    if not os.environ.get("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY not set in environment")
 
-    openai.api_key = os.environ.get("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")
+    openai.api_key = os.environ.get("OPENAI_API_KEY")
 
     messages = [
         {"role": "system", "content": "You are a coding assistant."},
@@ -232,4 +231,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
-
