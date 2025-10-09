@@ -1,0 +1,7 @@
+{
+  "problem_text": "",
+  "input": "",
+  "output": "",
+  "constraints": "",
+  "algorithm": ""
+}
