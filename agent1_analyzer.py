@@ -9,14 +9,17 @@ import os
 import json
 import argparse
 import logging
+import langchain_community
+# If no error occurs, press Ctrl+Z then Enter (Windows) or Ctrl+D (Linux/macOS) to exit
 import re
 from pathlib import Path
 from typing import Dict, Any
 
 # LangChain imports
-from langchain.chat_models import ChatOpenAI
+# LangChain imports
+from langchain_community.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
+from langchain.chains import LLMChain # <--- CORRECTED IMPORT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
